@@ -1,179 +1,143 @@
-// ===== TEMP GRAPH (REMOVE LATER) =====
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <queue>
 #include <iostream>
-
-struct Edge {
-    int to;
-    int weight;
-};
-
-class Graph {
-public:
-    std::unordered_map<int, std::vector<Edge>> adj;
-
-    std::vector<Edge> getNeighbors(int id) const {
-        if (adj.count(id))
-            return adj.at(id);
-        return {};
-    }
-
-    std::vector<int> getAllUserIds() const {
-        std::vector<int> ids;
-        for (auto &p : adj)
-            ids.push_back(p.first);
-        return ids;
-    }
-};
-// ===== END TEMP GRAPH =====
-
-#include "graph.cpp"
-#include <vector>
 #include <queue>
 #include <unordered_set>
+#include <algorithm>
+#include <iomanip>
+#include "analysis.h"
+#include "shortest_path.h"
 
-// Degree of Separation
-int degreeOfSeparation(const Graph& g, int id1, int id2) {
-    std::queue<std::pair<int, int>> q;
-    std::unordered_set<int> visited;
+// ── Degree of separation ─────────────────────────────────────────────────────
 
-    q.push({id1, 0});
-    visited.insert(id1);
+int Analysis::degreeOfSeparation(const Graph& g, int userId1, int userId2) {
+    PathResult result = ShortestPath::bfsShortestPath(g, userId1, userId2);
+    if (!result.found) return -1; // not connected
+    return (int)result.path.size() - 1;
+}
 
-    while (!q.empty()) {
-        auto front = q.front();
-        q.pop();
+// ── Mutual friends ───────────────────────────────────────────────────────────
 
-        int node = front.first;
-        int dist = front.second;
+std::vector<int> Analysis::mutualFriends(const Graph& g, int userId1, int userId2) {
+    // Build neighbour sets
+    auto buildSet = [&](int uid) {
+        std::unordered_set<int> s;
+        for (const auto& e : g.getNeighbors(uid))
+            s.insert(e.getTo());
+        return s;
+    };
 
-        if (node == id2) return dist;
+    auto s1 = buildSet(userId1);
+    auto s2 = buildSet(userId2);
 
-        for (auto &edge : g.getNeighbors(node)) {
-            if (!visited.count(edge.to)) {
-                visited.insert(edge.to);
-                q.push({edge.to, dist + 1});
-            }
+    std::vector<int> common;
+    for (int id : s1)
+        if (s2.count(id)) common.push_back(id);
+
+    std::sort(common.begin(), common.end());
+    return common;
+}
+
+// ── Most connected user ──────────────────────────────────────────────────────
+
+User Analysis::mostConnectedUser(const Graph& g) {
+    const auto& users = g.getAllUsers();
+    if (users.empty())
+        throw std::runtime_error("Graph is empty.");
+
+    int    bestId  = -1;
+    int    bestDeg = -1;
+
+    for (const auto& [uid, _] : users) {
+        int deg = (int)g.getNeighbors(uid).size();
+        if (deg > bestDeg) {
+            bestDeg = deg;
+            bestId  = uid;
         }
     }
-
-    return -1;
+    return g.getUser(bestId);
 }
 
-// Mutual Friends
-std::vector<int> mutualFriends(const Graph& g, int id1, int id2) {
-    std::vector<int> result;
-    std::unordered_set<int> set1;
+// ── Is graph connected (BFS from first node) ─────────────────────────────────
 
-    for (auto &e : g.getNeighbors(id1))
-        set1.insert(e.to);
-
-    for (auto &e : g.getNeighbors(id2))
-        if (set1.count(e.to))
-            result.push_back(e.to);
-
-    return result;
-}
-
-// Most Connected User
-int mostConnectedUser(const Graph& g) {
-    int maxUser = -1;
-    int maxConnections = -1;
-
-    for (int id : g.getAllUserIds()) {
-        int size = g.getNeighbors(id).size();
-        if (size > maxConnections) {
-            maxConnections = size;
-            maxUser = id;
-        }
-    }
-
-    return maxUser;
-}
-
-// Graph Connected or Not
-bool isGraphConnected(const Graph& g) {
-    auto users = g.getAllUserIds();
+bool Analysis::isGraphConnected(const Graph& g) {
+    const auto& users = g.getAllUsers();
     if (users.empty()) return true;
 
-    std::queue<int> q;
+    int startId = users.begin()->first;
     std::unordered_set<int> visited;
+    std::queue<int>         q;
 
-    q.push(users[0]);
-    visited.insert(users[0]);
+    visited.insert(startId);
+    q.push(startId);
 
     while (!q.empty()) {
-        int node = q.front();
-        q.pop();
-
-        for (auto &edge : g.getNeighbors(node)) {
-            if (!visited.count(edge.to)) {
-                visited.insert(edge.to);
-                q.push(edge.to);
+        int cur = q.front(); q.pop();
+        for (const auto& e : g.getNeighbors(cur)) {
+            int nb = e.getTo();
+            if (!visited.count(nb)) {
+                visited.insert(nb);
+                q.push(nb);
             }
         }
     }
-
-    return visited.size() == users.size();
+    return (int)visited.size() == g.getUserCount();
 }
 
-// Reachable Users
-std::vector<int> reachableUsers(const Graph& g, int id) {
-    std::vector<int> result;
-    std::queue<int> q;
-    std::unordered_set<int> visited;
+// ── Degree ───────────────────────────────────────────────────────────────────
 
-    q.push(id);
-    visited.insert(id);
+int Analysis::degree(const Graph& g, int userId) {
+    return (int)g.getNeighbors(userId).size();
+}
+
+// ── Reachable users (BFS) ────────────────────────────────────────────────────
+
+std::vector<int> Analysis::reachableUsers(const Graph& g, int userId) {
+    std::unordered_set<int> visited;
+    std::queue<int>         q;
+
+    visited.insert(userId);
+    q.push(userId);
 
     while (!q.empty()) {
-        int node = q.front();
-        q.pop();
-
-        result.push_back(node);
-
-        for (auto &edge : g.getNeighbors(node)) {
-            if (!visited.count(edge.to)) {
-                visited.insert(edge.to);
-                q.push(edge.to);
+        int cur = q.front(); q.pop();
+        for (const auto& e : g.getNeighbors(cur)) {
+            int nb = e.getTo();
+            if (!visited.count(nb)) {
+                visited.insert(nb);
+                q.push(nb);
             }
         }
     }
-
-    return result;
+    visited.erase(userId); // exclude self
+    return std::vector<int>(visited.begin(), visited.end());
 }
 
-// Average Degree
-double averageDegree(const Graph& g) {
-    int total = 0;
-    auto users = g.getAllUserIds();
+// ── Influence score ──────────────────────────────────────────────────────────
 
-    for (int id : users) {
-        total += g.getNeighbors(id).size();
-    }
-
-    if (users.empty()) return 0;
-
-    return (double) total / users.size();
+double Analysis::influenceScore(const Graph& g, int userId) {
+    double score = 0.0;
+    for (const auto& e : g.getNeighbors(userId))
+        score += e.getWeight();
+    return score;
 }
 
+// ── Network summary ──────────────────────────────────────────────────────────
 
-int main() {
-    Graph g;
+void Analysis::networkSummary(const Graph& g) {
+    std::cout << "\n======= Network Summary =======\n";
+    std::cout << "Total users      : " << g.getUserCount() << "\n";
+    std::cout << "Total connections: " << g.getEdgeCount()  << "\n";
+    std::cout << "Graph connected  : " << (isGraphConnected(g) ? "Yes" : "No") << "\n";
 
-    // sample graph
-    g.adj[1] = {{2,1}, {3,1}};
-    g.adj[2] = {{1,1}, {4,1}};
-    g.adj[3] = {{1,1}};
-    g.adj[4] = {{2,1}};
+    User top = mostConnectedUser(g);
+    std::cout << "Most connected   : " << top.getName()
+              << " (" << degree(g, top.getId()) << " connections)\n";
 
-    std::cout << "Degree of Separation (1 → 4): "
-              << degreeOfSeparation(g, 1, 4) << std::endl;
-
-    std::cout << "Most Connected User: "
-              << mostConnectedUser(g) << std::endl;
-
-    return 0;
+    // Average degree
+    double totalDeg = 0;
+    for (const auto& [uid, _] : g.getAllUsers())
+        totalDeg += degree(g, uid);
+    double avg = g.getUserCount() > 0 ? totalDeg / g.getUserCount() : 0;
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Average degree   : " << avg << "\n";
+    std::cout << "================================\n";
 }
